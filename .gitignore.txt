@@ -1,0 +1,10 @@
+
+app_movil/build/
+app_movil/.dart_tool/
+app_movil/.idea/
+app_movil/ios/Flutter/App.framework
+app_movil/ios/Flutter/Flutter.framework
+
+
+.DS_Store
+Thumbs.db
