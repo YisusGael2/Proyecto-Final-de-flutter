@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'package:flutter/foundation.dart'; // Para kIsWeb
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
@@ -14,21 +14,22 @@ class _SalidaScreenState extends State<SalidaScreen> {
   final TextEditingController _searchController = TextEditingController();
   
   bool _buscando = false;
-  Map<String, dynamic>? _infoCobro; // Aquí guardamos los datos si encontramos el auto
+  Map<String, dynamic>? _infoCobro; 
+  
+  // VARIABLE NUEVA PARA SABER SI ESTAMOS COBRANDO MULTA
+  bool _esBoletoPerdido = false; 
 
-  // 1. BUSCAR Y CALCULAR
   Future<void> consultarCobro() async {
     if (_searchController.text.isEmpty) return;
 
-    setState(() { _buscando = true; _infoCobro = null; });
+    setState(() { _buscando = true; _infoCobro = null; _esBoletoPerdido = false; });
 
     String host = kIsWeb ? 'localhost' : '10.0.2.2';
     var url = Uri.parse('http://$host/parking_api/consultar_cobro.php');
 
     try {
       var response = await http.post(url, body: {
-      
-        "codigo_barra": _searchController.text.trim(), 
+        "codigo_barra": _searchController.text.trim(),
       });
 
       var data = jsonDecode(response.body);
@@ -45,7 +46,22 @@ class _SalidaScreenState extends State<SalidaScreen> {
     }
   }
 
-  // 2. CONFIRMAR Y PAGAR
+  // FUNCIÓN PARA CAMBIAR ENTRE COBRO NORMAL Y MULTA
+  void toggleBoletoPerdido() {
+    setState(() {
+      _esBoletoPerdido = !_esBoletoPerdido;
+      
+      if (_esBoletoPerdido) {
+        // Ponemos el precio de la multa
+        _infoCobro!['total_real'] = _infoCobro!['total']; // Respaldamos el original
+        _infoCobro!['total'] = _infoCobro!['precio_boleto_perdido'];
+      } else {
+        // Restauramos el precio por tiempo
+        _infoCobro!['total'] = _infoCobro!['total_real'];
+      }
+    });
+  }
+
   Future<void> registrarSalida() async {
     if (_infoCobro == null) return;
 
@@ -56,25 +72,35 @@ class _SalidaScreenState extends State<SalidaScreen> {
       var response = await http.post(url, body: {
         "placa": _infoCobro!['placa'],
         "total": _infoCobro!['total'].toString(),
+        // Opcional: Podrías mandar una nota de que fue boleto perdido si quisieras
       });
 
       var data = jsonDecode(response.body);
 
       if (data['success'] == true) {
-        // ÉXITO: Mostramos alerta y salimos
         showDialog(
           context: context, 
           barrierDismissible: false,
           builder: (c) => AlertDialog(
-            title: const Text("¡Cobro Exitoso!"),
-            content: const Icon(Icons.check_circle, color: Colors.green, size: 60),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+            title: const Column(
+              children: [
+                Icon(Icons.check_circle, color: Colors.green, size: 60),
+                SizedBox(height: 10),
+                Text("¡Cobro Exitoso!", textAlign: TextAlign.center),
+              ],
+            ),
+            content: Text(
+              _esBoletoPerdido ? "Salida registrada con MULTA por boleto perdido." : "Salida registrada correctamente.", 
+              textAlign: TextAlign.center
+            ),
             actions: [
               TextButton(
                 onPressed: () {
-                  Navigator.pop(context); // Cierra dialogo
-                  Navigator.pop(context); // Regresa al Home
+                  Navigator.pop(context); 
+                  Navigator.pop(context); 
                 }, 
-                child: const Text("ACEPTAR")
+                child: const Text("ACEPTAR", style: TextStyle(fontSize: 18))
               )
             ],
           )
@@ -90,16 +116,17 @@ class _SalidaScreenState extends State<SalidaScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text("Salida y Cobro"),
-        backgroundColor: const Color(0xFF5D4037), // Color Café/Rojo para salidas
+        backgroundColor: const Color(0xFF5D4037),
         foregroundColor: Colors.white,
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Column(
           children: [
-            // --- BUSCADOR ---
+            // BUSCADOR
             Card(
               elevation: 4,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               child: Padding(
                 padding: const EdgeInsets.all(16.0),
                 child: Row(
@@ -109,10 +136,10 @@ class _SalidaScreenState extends State<SalidaScreen> {
                         controller: _searchController,
                         textCapitalization: TextCapitalization.characters,
                         decoration: const InputDecoration(
-                          labelText: "Buscar Codigo de Barra",
-                          hintText: "Ej. ABC-123",
+                          labelText: "Escanear Código",
+                          hintText: "DOM...",
                           border: OutlineInputBorder(),
-                          prefixIcon: Icon(Icons.search)
+                          prefixIcon: Icon(Icons.qr_code)
                         ),
                       ),
                     ),
@@ -124,17 +151,16 @@ class _SalidaScreenState extends State<SalidaScreen> {
                         padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20)
                       ),
                       child: _buscando 
-                        ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)) 
-                        : const Icon(Icons.arrow_forward, color: Colors.white),
+                        ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white)) 
+                        : const Icon(Icons.search, color: Colors.white),
                     )
                   ],
                 ),
               ),
             ),
 
-            const SizedBox(height: 30),
+            const SizedBox(height: 20),
 
-            // --- RESULTADO DEL COBRO (SOLO SI SE ENCONTRÓ) ---
             if (_infoCobro != null) 
               Card(
                 color: Colors.white,
@@ -144,48 +170,79 @@ class _SalidaScreenState extends State<SalidaScreen> {
                   padding: const EdgeInsets.all(20.0),
                   child: Column(
                     children: [
-                      const Text("RESUMEN DE PAGO", style: TextStyle(fontSize: 18, color: Colors.grey, letterSpacing: 2)),
-                      const Divider(height: 30),
-                      
-                      // Placa gigante
+                      // AVISO DE MULTA
+                      if (_esBoletoPerdido)
+                        Container(
+                          width: double.infinity,
+                          margin: const EdgeInsets.only(bottom: 15),
+                          padding: const EdgeInsets.all(8),
+                          color: Colors.red[100],
+                          child: const Text(
+                            "⚠️ APLICANDO MULTA: BOLETO PERDIDO",
+                            textAlign: TextAlign.center,
+                            style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+
                       Text(
                         _infoCobro!['placa'], 
-                        style: const TextStyle(fontSize: 40, fontWeight: FontWeight.w900, color: Color(0xFF263238))
+                        style: const TextStyle(fontSize: 42, fontWeight: FontWeight.w900, color: Color(0xFF263238))
                       ),
-                      Text(_infoCobro!['modelo'] ?? "", style: const TextStyle(fontSize: 16, color: Colors.grey)),
+                      Container(
+                         margin: const EdgeInsets.only(top:5, bottom: 20),
+                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                         decoration: BoxDecoration(color: Colors.grey[200], borderRadius: BorderRadius.circular(5)),
+                         child: Text("${_infoCobro!['modelo']} • ${_infoCobro!['color']}", style: const TextStyle(fontSize: 16)),
+                      ),
                       
-                      const SizedBox(height: 20),
-                      
-                      // Detalles Tiempo
                       _filaDetalle("Entrada:", _infoCobro!['hora_entrada']),
-                      _filaDetalle("Salida:", _infoCobro!['hora_salida']),
-                      _filaDetalle("Tiempo Total:", _infoCobro!['tiempo_transcurrido']),
+                      _filaDetalle("Tiempo:", _infoCobro!['tiempo_transcurrido']),
                       
-                      const Divider(height: 30, thickness: 2),
+                      const Divider(height: 30, thickness: 1),
 
-                      // TOTAL
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          const Text("TOTAL A PAGAR:", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                          const Text("TOTAL:", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
                           Text(
-                            "\$${_infoCobro!['total']}.00", 
-                            style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Colors.green)
+                            "\$${_infoCobro!['total']}", // Muestra el total dinámico
+                            style: TextStyle(
+                              fontSize: 36, 
+                              fontWeight: FontWeight.bold, 
+                              color: _esBoletoPerdido ? Colors.red : Colors.green
+                            )
                           ),
                         ],
                       ),
 
-                      const SizedBox(height: 30),
+                      const SizedBox(height: 20),
 
-                      // BOTÓN COBRAR
+                      // BOTÓN TOGGLE: BOLETO PERDIDO
+                      OutlinedButton.icon(
+                        onPressed: toggleBoletoPerdido,
+                        icon: Icon(_esBoletoPerdido ? Icons.undo : Icons.warning_amber_rounded, 
+                                   color: _esBoletoPerdido ? Colors.black : Colors.red),
+                        label: Text(_esBoletoPerdido ? "CANCELAR MULTA" : "COBRAR BOLETO PERDIDO"),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: _esBoletoPerdido ? Colors.black : Colors.red,
+                          side: BorderSide(color: _esBoletoPerdido ? Colors.black : Colors.red)
+                        ),
+                      ),
+
+                      const SizedBox(height: 20),
+
+                      // BOTÓN FINALIZAR
                       SizedBox(
                         width: double.infinity,
                         height: 55,
                         child: ElevatedButton.icon(
                           onPressed: registrarSalida,
-                          icon: const Icon(Icons.attach_money, color: Colors.white),
-                          label: const Text("CONFIRMAR Y COBRAR", style: TextStyle(fontSize: 18, color: Colors.white)),
-                          style: ElevatedButton.styleFrom(backgroundColor: Colors.green[700]),
+                          icon: const Icon(Icons.attach_money, color: Colors.white, size: 28),
+                          label: const Text("COBRAR Y FINALIZAR", style: TextStyle(fontSize: 18, color: Colors.white, fontWeight: FontWeight.bold)),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: _esBoletoPerdido ? Colors.red[700] : Colors.green[700],
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))
+                          ),
                         ),
                       )
                     ],
@@ -200,12 +257,12 @@ class _SalidaScreenState extends State<SalidaScreen> {
 
   Widget _filaDetalle(String label, String valor) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 5),
+      padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: const TextStyle(fontWeight: FontWeight.bold)),
-          Text(valor),
+          Text(label, style: const TextStyle(fontWeight: FontWeight.w500, color: Colors.grey)),
+          Text(valor, style: const TextStyle(fontWeight: FontWeight.bold)),
         ],
       ),
     );
